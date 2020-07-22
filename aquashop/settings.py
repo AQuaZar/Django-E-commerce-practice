@@ -4,7 +4,7 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 DEBUG = True
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SECRET_KEY = "-05sgp9!deq=q1nltm@^^2cc+v29i(tyybv3v2t77qi66czazj"
+SECRET_KEY = get_env_variable("SECRET_KEY")
 ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
@@ -97,3 +97,4 @@ SITE_ID = 1
 # CRISPY FORMS
 
 CRISPY_TEMPLATE_PACK = "bootstrap4"
+STRIPE_SECRET_KEY = get_env_variable("STRIPE_SECRET_KEY")

@@ -1,12 +1,17 @@
 from django.contrib import messages
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.generic import ListView, View, DetailView
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
-from .models import Item, OrderItem, Order, BillingAddress
+from .models import Item, OrderItem, Order, BillingAddress, Payment
 from .forms import CheckoutForm
+
+import stripe
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
 class CheckoutView(View):
@@ -37,11 +42,95 @@ class CheckoutView(View):
                 billing_address.save()
                 order.billing_address = billing_address
                 order.save()
-
-            return redirect("core:checkout-page")
+                if payment_option == "S":
+                    return redirect("core:payment", payment_option="stripe")
+                elif payment_option == "P":
+                    return redirect("core:payment", payment_option="paypal")
+                else:
+                    messages.error(self.request, "Invalid payment option")
+                    return redirect("core:checkout-page")
         except ObjectDoesNotExist:
             messages.error(self.request, "You do not have an active order")
             return redirect("core:order-summary")
+
+
+class PaymentView(View):
+    def get(self, *args, **kwargs):
+        order = Order.objects.get(user=self.request.user, ordered=False)
+        if order.billing_address:
+            context = {
+                "order": order,
+                "DISPLAY_COUPON_FORM": False,
+                "STRIPE_PUBLIC_KEY": settings.STRIPE_PUBLIC_KEY,
+            }
+            return render(self.request, "payment.html", context)
+        else:
+            messages.warning(self.request, "You have not added a billing address")
+            return redirect("core:checkout-page")
+        return render(self.request, "payment.html")
+
+    def post(self, *args, **kwargs):
+        order = Order.objects.get(user=self.request.user, ordered=False)
+        token = self.request.POST.get("stripeToken")
+        print(token)
+        amount = int(order.get_total_price()) * 100
+
+        try:
+            charge = stripe.Charge.create(amount=amount, currency="usd", source=token)
+            print(charge)
+            payment = Payment()
+            payment.stripe_charge_id = charge["id"]
+            payment.user = self.request.user
+            payment.amount = amount
+            payment.save()
+
+            order_items = order.items.all()
+            order_items.update(ordered=True)
+            for item in order_items:
+                item.save()
+
+            order.ordered = True
+            order.payment = payment
+            order.save()
+
+            messages.success(self.request, "Your order was successful")
+            return redirect("/")
+        except stripe.error.CardError as e:
+            # Since it's a decline, stripe.error.CardError will be caught
+
+            body = e.json_body
+            err = body.get("error", {})
+            messages.warning(self.request, f"{err.get('message')}")
+            return redirect("/")
+        except stripe.error.RateLimitError as e:
+            messages.error(self.request, "Rate limit error")
+            return redirect("/")
+            # Too many requests made to the API too quickly
+        except stripe.error.InvalidRequestError as e:
+            messages.error(self.request, "Invalid request")
+            return redirect("/")
+            # Invalid parameters were supplied to Stripe's API
+        except stripe.error.AuthenticationError as e:
+            messages.error(self.request, "Authentication error")
+            return redirect("/")
+            # Authentication with Stripe's API failed
+            # (maybe you changed API keys recently)
+
+        except stripe.error.APIConnectionError as e:
+            messages.error(self.request, "Api connection error")
+            return redirect("/")
+            # Network communication with Stripe failed
+
+        except stripe.error.StripeError as e:
+            messages.error(self.request, "Try again")
+            return redirect("/")
+            # Display a very generic error to the user, and maybe send
+            # yourself an email
+
+        except Exception as e:
+            # Something else happened, completely unrelated to Stripe
+            messages.error(self.request, "??")
+            return redirect("/")
 
 
 def detail(reqest):

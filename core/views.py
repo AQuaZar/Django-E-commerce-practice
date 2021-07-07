@@ -6,7 +6,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.views.generic import ListView, View, DetailView
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
-from .models import Item, OrderItem, Order, BillingAddress, Payment
+from .models import Item, OrderItem, Order, BillingAddress, Payment, Coupon
 from .forms import CheckoutForm
 
 import stripe
@@ -238,3 +238,24 @@ def remove_single_item_from_cart(request, slug):
     else:
         messages.info(request, "No active order was found")
         return redirect("core:product", slug=slug)
+
+
+def get_coupon(request, code):
+    try:
+        coupon = Coupon.objects.get(code=code)
+        return coupon
+    except ObjectDoesNotExist:
+        messages.info(request, "This coupon does not exist")
+        return redirect("core:checkout-page")
+
+
+def add_coupon(request, code):
+    try:
+        order = Order.objects.get(user=request.user, ordered=False)
+        order.coupon = get_coupon(request, code)
+        order.save()
+        messages.success(request, "Coupon accepted!")
+        return redirect("core:checkout-page")
+    except ObjectDoesNotExist:
+        messages.info(request, "No active order was found")
+        return redirect("core:checkout-page")

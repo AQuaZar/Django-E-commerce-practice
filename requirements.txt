@@ -27,4 +27,4 @@ sqlparse==0.2.4
 stripe==2.49.0
 toml==0.10.1
 typed-ast==1.4.1
-urllib3==1.25.9
+urllib3==1.26.5
